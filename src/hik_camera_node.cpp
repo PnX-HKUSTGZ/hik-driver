@@ -146,15 +146,6 @@ private:
     }
     
 
-    // 关闭帧率控制
-    int status = MV_CC_SetBoolValue(camera_handle_, "AcquisitionFrameRateEnable", 0);
-    if (MV_OK != status) {
-      RCLCPP_WARN(this->get_logger(), "Failed to set AcquisitionFrameRateEnable, status = %d", status);
-    } else {
-      RCLCPP_INFO(this->get_logger(), "AcquisitionFrameRateEnable: false");
-    }
-    
-
     // Exposure time
     param_desc.description = "Exposure time in microseconds";
     MV_CC_GetFloatValue(camera_handle_, "ExposureTime", &f_value);
