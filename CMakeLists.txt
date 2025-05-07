@@ -9,17 +9,23 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 ## enforcing cleaner code.
 add_definitions(-Wall -Werror)
 
+## Add optimization flags
+add_compile_options(-O2)
+
 ## Export compile commands for clangd
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(ament_cmake_auto REQUIRED)
+# 添加OpenCV依赖
+find_package(OpenCV REQUIRED)
+find_package(cv_bridge REQUIRED)
 ament_auto_find_build_dependencies()
 
 ament_auto_add_library(${PROJECT_NAME} SHARED
   src/hik_camera_node.cpp
 )
 
-target_include_directories(${PROJECT_NAME} PUBLIC hikSDK/include)
+target_include_directories(${PROJECT_NAME} PUBLIC hikSDK/include ${OpenCV_INCLUDE_DIRS})
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
   target_link_directories(${PROJECT_NAME} PUBLIC hikSDK/lib/amd64)
@@ -43,6 +49,7 @@ target_link_libraries(${PROJECT_NAME}
   MvCameraControl
   MVRender
   MvUsb3vTL
+  ${OpenCV_LIBRARIES}
 )
 
 rclcpp_components_register_node(${PROJECT_NAME}

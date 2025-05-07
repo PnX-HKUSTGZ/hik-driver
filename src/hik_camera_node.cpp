@@ -7,7 +7,9 @@
 #include <rclcpp/utilities.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
-
+// OpenCV
+#include <opencv2/opencv.hpp>
+#include <cv_bridge/cv_bridge.h>
 namespace hik_camera
 {
 class HikCameraNode : public rclcpp::Node
@@ -91,6 +93,9 @@ public:
           image_msg_.step = out_frame.stFrameInfo.nWidth * 3;
           image_msg_.data.resize(image_msg_.width * image_msg_.height * 3);
 
+          cv::Mat cv_image(image_msg_.height, image_msg_.width, CV_8UC3, image_msg_.data.data());
+          cv::flip(cv_image, cv_image, -1);  // -1参数表示同时水平和垂直翻转（180度）
+
           camera_info_msg_.header = image_msg_.header;
           camera_pub_.publish(image_msg_, camera_info_msg_);
 
@@ -131,6 +136,16 @@ private:
     MVCC_FLOATVALUE f_value;
     param_desc.integer_range.resize(1);
     param_desc.integer_range[0].step = 1;
+
+    // 关闭帧率控制
+    int status = MV_CC_SetBoolValue(camera_handle_, "AcquisitionFrameRateEnable", 0);
+    if (MV_OK != status) {
+      RCLCPP_WARN(this->get_logger(), "Failed to set AcquisitionFrameRateEnable, status = %d", status);
+    } else {
+      RCLCPP_INFO(this->get_logger(), "AcquisitionFrameRateEnable: false");
+    }
+    
+
     // Exposure time
     param_desc.description = "Exposure time in microseconds";
     MV_CC_GetFloatValue(camera_handle_, "ExposureTime", &f_value);
