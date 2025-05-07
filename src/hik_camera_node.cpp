@@ -136,6 +136,15 @@ private:
     MVCC_FLOATVALUE f_value;
     param_desc.integer_range.resize(1);
     param_desc.integer_range[0].step = 1;
+  
+    // 关闭帧率控制
+    int status = MV_CC_SetBoolValue(camera_handle_, "AcquisitionFrameRateEnable", 0);
+    if (MV_OK != status) {
+      RCLCPP_WARN(this->get_logger(), "Failed to set AcquisitionFrameRateEnable, status = %d", status);
+    } else {
+      RCLCPP_INFO(this->get_logger(), "AcquisitionFrameRateEnable: false");
+    }
+    
 
     // 关闭帧率控制
     int status = MV_CC_SetBoolValue(camera_handle_, "AcquisitionFrameRateEnable", 0);
