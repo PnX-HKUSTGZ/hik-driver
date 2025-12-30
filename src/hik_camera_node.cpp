@@ -1,7 +1,12 @@
 #include "MvCameraControl.h"
+// C++
+#include <chrono>
+#include <limits>
+#include <thread>
 // ROS
 #include <camera_info_manager/camera_info_manager.hpp>
 #include <image_transport/image_transport.hpp>
+#include <rclcpp/clock.hpp>
 #include <rclcpp/logging.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/utilities.hpp>
@@ -77,6 +82,10 @@ public:
             while (rclcpp::ok()) {
                 nRet = MV_CC_GetImageBuffer(camera_handle_, &out_frame, 1000);
                 if (MV_OK == nRet) {
+                    // Align host timestamp with ROS system clock on first valid frame, then reuse.
+                    const int64_t host_timestamp_ns =
+                        static_cast<int64_t>(out_frame.stFrameInfo.nHostTimeStamp) * 1000000;
+
                     convert_param_.pDstBuffer = image_msg_.data.data();
                     convert_param_.nDstBufferSize = image_msg_.data.size();
                     convert_param_.pSrcData = out_frame.pBufAddr;
@@ -85,7 +94,7 @@ public:
 
                     MV_CC_ConvertPixelType(camera_handle_, &convert_param_);
 
-                    image_msg_.header.stamp = this->now();
+                    image_msg_.header.stamp = rclcpp::Time(host_timestamp_ns, RCL_SYSTEM_TIME);
                     image_msg_.height = out_frame.stFrameInfo.nHeight;
                     image_msg_.width = out_frame.stFrameInfo.nWidth;
                     image_msg_.step = out_frame.stFrameInfo.nWidth * 3;
@@ -204,6 +213,11 @@ private:
 
     int fail_conut_ = 0;
     std::thread capture_thread_;
+
+    // Host timestamp (microseconds) to ROS system time alignment.
+    rclcpp::Clock system_clock_{RCL_SYSTEM_TIME};
+    bool host_time_offset_initialized_ = false;
+    int64_t host_time_to_ros_offset_ns_ = 0;
 
     OnSetParametersCallbackHandle::SharedPtr params_callback_handle_;
 };
