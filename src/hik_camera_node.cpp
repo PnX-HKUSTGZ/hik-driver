@@ -8,14 +8,68 @@
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
 
+#include <stdexcept>
+#include <string>
+
 namespace hik_camera
 {
+namespace
+{
+std::string boundedString(const unsigned char * data, size_t max_size)
+{
+  size_t len = 0;
+  while (len < max_size && data[len] != '\0') {
+    ++len;
+  }
+  return std::string(reinterpret_cast<const char *>(data), len);
+}
+
+std::string getDeviceSerial(const MV_CC_DEVICE_INFO * device_info)
+{
+  if (device_info == nullptr) {
+    return "";
+  }
+  if (device_info->nTLayerType == MV_USB_DEVICE) {
+    return boundedString(
+      device_info->SpecialInfo.stUsb3VInfo.chSerialNumber,
+      sizeof(device_info->SpecialInfo.stUsb3VInfo.chSerialNumber));
+  }
+  if (device_info->nTLayerType == MV_GIGE_DEVICE) {
+    return boundedString(
+      device_info->SpecialInfo.stGigEInfo.chSerialNumber,
+      sizeof(device_info->SpecialInfo.stGigEInfo.chSerialNumber));
+  }
+  return "";
+}
+
+std::string getDeviceUserName(const MV_CC_DEVICE_INFO * device_info)
+{
+  if (device_info == nullptr) {
+    return "";
+  }
+  if (device_info->nTLayerType == MV_USB_DEVICE) {
+    return boundedString(
+      device_info->SpecialInfo.stUsb3VInfo.chUserDefinedName,
+      sizeof(device_info->SpecialInfo.stUsb3VInfo.chUserDefinedName));
+  }
+  if (device_info->nTLayerType == MV_GIGE_DEVICE) {
+    return boundedString(
+      device_info->SpecialInfo.stGigEInfo.chUserDefinedName,
+      sizeof(device_info->SpecialInfo.stGigEInfo.chUserDefinedName));
+  }
+  return "";
+}
+}  // namespace
+
 class HikCameraNode : public rclcpp::Node
 {
 public:
   explicit HikCameraNode(const rclcpp::NodeOptions & options) : Node("hik_camera", options)
   {
     RCLCPP_INFO(this->get_logger(), "Starting HikCameraNode!");
+
+    camera_serial_number_ = this->declare_parameter<std::string>("camera_serial_number", "");
+    frame_id_ = this->declare_parameter<std::string>("frame_id", "camera_optical_frame");
 
     MV_CC_DEVICE_INFO_LIST device_list;
     // enum device
@@ -29,13 +83,45 @@ public:
       nRet = MV_CC_EnumDevices(MV_USB_DEVICE, &device_list);
     }
 
-    MV_CC_CreateHandle(&camera_handle_, device_list.pDeviceInfo[0]);
+    unsigned int selected_index = 0;
+    bool found_requested_camera = camera_serial_number_.empty();
+    for (unsigned int i = 0; i < device_list.nDeviceNum; ++i) {
+      const auto * device_info = device_list.pDeviceInfo[i];
+      const auto serial = getDeviceSerial(device_info);
+      const auto user_name = getDeviceUserName(device_info);
+      RCLCPP_INFO(
+        this->get_logger(), "Camera[%u]: serial='%s' user='%s'",
+        i, serial.c_str(), user_name.c_str());
+      if (!camera_serial_number_.empty() && serial == camera_serial_number_) {
+        selected_index = i;
+        found_requested_camera = true;
+      }
+    }
+
+    if (!found_requested_camera) {
+      RCLCPP_FATAL(
+        this->get_logger(), "Camera serial '%s' not found",
+        camera_serial_number_.c_str());
+      throw std::runtime_error("Requested Hik camera serial not found");
+    }
+
+    if (camera_serial_number_.empty()) {
+      RCLCPP_WARN(
+        this->get_logger(),
+        "camera_serial_number is empty; using camera index 0 for compatibility");
+    } else {
+      RCLCPP_INFO(
+        this->get_logger(), "Opening camera serial '%s'",
+        camera_serial_number_.c_str());
+    }
+
+    MV_CC_CreateHandle(&camera_handle_, device_list.pDeviceInfo[selected_index]);
 
     MV_CC_OpenDevice(camera_handle_);
 
     // Get camera infomation
     MV_CC_GetImageInfo(camera_handle_, &img_info_);
-    image_msg_.data.reserve(img_info_.nHeightMax * img_info_.nWidthMax * 3);
+    image_msg_.data.resize(img_info_.nHeightMax * img_info_.nWidthMax * 3);
 
     // Init convert param
     convert_param_.nWidth = img_info_.nWidthValue;
@@ -71,7 +157,7 @@ public:
 
       RCLCPP_INFO(this->get_logger(), "Publishing image!");
 
-      image_msg_.header.frame_id = "camera_optical_frame";
+      image_msg_.header.frame_id = frame_id_;
       image_msg_.encoding = "rgb8";
 
       while (rclcpp::ok()) {
@@ -187,6 +273,8 @@ private:
   MV_CC_PIXEL_CONVERT_PARAM convert_param_;
 
   std::string camera_name_;
+  std::string camera_serial_number_;
+  std::string frame_id_;
   std::unique_ptr<camera_info_manager::CameraInfoManager> camera_info_manager_;
   sensor_msgs::msg::CameraInfo camera_info_msg_;
 
